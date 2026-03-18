@@ -21,6 +21,8 @@ Your Antigravity conversation history disappeared? Conversations showing in the 
 | Placeholder titles instead of real names | ✅ Restores from brain artifacts |
 | Titles lost after previous fix attempts | ✅ Preserves existing titles |
 | Workspace assignments stripped on rebuild | ✅ Preserves workspace metadata *(v1.01+)* |
+| Lost workspace assignments (v1.0 damage) | ✅ Auto-recovers from brain artifacts *(v1.03+)* |
+| Missing timestamps causing wrong sort | ✅ Injects timestamps from file dates *(v1.03+)* |
 
 ## How It Works
 
@@ -49,9 +51,16 @@ When the index gets corrupted, conversations still exist on disk but don't show 
 | `[+]` | Title extracted from brain artifact |
 | `[~]` | Title preserved from existing database |
 | `[?]` | Fallback title (no source available) |
-| `[WS]` | Workspace metadata preserved *(v1.01+)* |
+| `[WS]` | Workspace metadata preserved or recovered |
 
 ## Changelog
+
+### v1.03
+- **New:** **Workspace auto-recovery** — scans your brain artifact `.md` files for project paths and automatically re-assigns lost workspace mappings. If you ran v1.0 and lost your workspace assignments, this version can recover most of them automatically.
+- **New:** **Interactive workspace assignment** — for conversations that can't be auto-detected, the script prompts you to assign a workspace folder. Supports batch assignment (`all`) for quick setup.
+- **New:** **Timestamp injection** — injects proper timestamps (created/updated) into conversations that are missing them, ensuring Antigravity sorts everything correctly by date.
+- **Fix:** Workspace URIs now properly URL-encode spaces and special characters (e.g. `My Project` → `My%20Project`).
+- **Fix:** Cross-platform process detection — Linux/macOS now properly checks if Antigravity is running.
 
 ### v1.02
 - **New:** Cross-platform support — the Python script now works on **macOS** and **Linux** in addition to Windows. The `.exe` remains Windows-only.
@@ -91,8 +100,8 @@ A: Those conversations don't have brain artifacts, and their original titles wer
 **Q: Can I run this while Antigravity is open?**
 A: The tool will detect if Antigravity is running and warn you. It's recommended to close it first so the app doesn't overwrite your fix when it exits.
 
-**Q: I ran v1.0 and my workspace chats were removed. Will v1.01 bring them back?**
-A: Unfortunately no. v1.0 permanently replaced the workspace metadata with title-only data. You'll need to manually drag those conversations back into their workspace inside Antigravity. v1.01 ensures this won't happen again.
+**Q: I ran v1.0 and my workspace chats were removed. Can I get them back?**
+A: Yes! v1.03 can auto-recover most workspace assignments by scanning your brain artifact files. Just run the latest version and it will detect and restore workspace mappings automatically. For any it can't detect, you'll be prompted to assign them manually.
 
 ## License
 
