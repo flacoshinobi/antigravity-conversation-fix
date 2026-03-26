@@ -367,7 +367,7 @@ def interactive_workspace_assignment(unmapped_entries):
             print(f"    [{idx:3d}] {title[:45]}  -> {os.path.basename(batch_path)}")
             continue
 
-        print(f"  [{idx:3d}] {title[:55]}")
+        print(f"  [{idx:3d}][{cid}] {title[:55]}")
         while True:
             raw = input("    Workspace path (Enter=skip, 'all'=batch, 'q'=stop): ").strip()
             if raw == "":
@@ -677,7 +677,7 @@ def main():
         stats[source] += 1
         marker = markers[source]
         ws_flag = " [WS]" if has_ws else ""
-        print(f"    [{i:3d}] {marker} {title[:50]}{ws_flag}")
+        print(f"    [{i:3d}][{cid}] {marker} {title[:50]}{ws_flag}")
 
     print("  " + "-" * 58)
     print(f"  Legend: [+] brain  [~] preserved  [?] fallback  [WS] workspace")
