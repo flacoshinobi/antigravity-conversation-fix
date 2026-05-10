@@ -26,6 +26,7 @@ Your Antigravity conversation history disappeared? Conversations showing in the 
 | Workspace assignments stripped on rebuild | ✅ Preserves workspace metadata *(v1.01+)* |
 | Lost workspace assignments (v1.0 damage) | ✅ Auto-recovers from brain artifacts *(v1.03+)* |
 | Missing timestamps causing wrong sort | ✅ Injects timestamps from file dates *(v1.03+)* |
+| Remote workspaces (WSL/SSH/Docker) not recognized | ✅ Full `vscode-remote://` support *(v1.04+)* |
 
 ## How It Works
 
@@ -57,6 +58,9 @@ When the index gets corrupted, conversations still exist on disk but don't show 
 | `[WS]` | Workspace metadata preserved or recovered |
 
 ## Changelog
+
+### v1.04
+- **New:** **Remote workspace support** — now correctly handles `vscode-remote://` URIs for WSL, SSH, and Docker workspaces. Remote paths are detected during auto-assignment and accepted during manual assignment without local filesystem validation.
 
 ### v1.03
 - **New:** **Workspace auto-recovery** — scans your brain artifact `.md` files for project paths and automatically re-assigns lost workspace mappings. If you ran v1.0 and lost your workspace assignments, this version can recover most of them automatically.
@@ -92,7 +96,7 @@ Requires Python 3.7+ with no external packages. The script automatically detects
 - **Metadata-preserving** — workspace assignments, timestamps, and other internal state are retained *(v1.01+)*
 - **Idempotent** — safe to run multiple times
 
-⚠️ Antivirus false positive: The .exe may be flagged by 4 out of 72 engines on VirusTotal — all low-tier (Jiangmin, Bkav, etc.). This is a known PyInstaller false positive: the bundler extracts Python to a temp folder at runtime, which triggers generic heuristic rules. All major engines (Windows Defender, Kaspersky, ESET, Bitdefender, Norton, etc.) pass it as clean. The source code is fully open — review it yourself if in doubt.
+⚠️ Antivirus false positive: The .exe may be flagged only by 2 out of 72 engines on VirusTotal — both low-tier (SecureAge, Bkav). This is a known PyInstaller false positive: the bundler extracts Python to a temp folder at runtime, which triggers generic heuristic rules. All major engines (Windows Defender, Kaspersky, ESET, Bitdefender, Norton, etc.) pass it as clean. The source code is fully open — review it yourself if in doubt, or simply use the .py version.
 
 ## FAQ
 
@@ -106,7 +110,10 @@ A: Those conversations don't have brain artifacts, and their original titles wer
 A: The tool will detect if Antigravity is running and warn you. It's recommended to close it first so the app doesn't overwrite your fix when it exits.
 
 **Q: I ran v1.0 and my workspace chats were removed. Can I get them back?**
-A: Yes! v1.03 can auto-recover most workspace assignments by scanning your brain artifact files. When prompted, press Enter or 1 for auto-assignment. If some conversations can't be auto-detected, choose option 2 to manually assign them, or just assign them later inside Antigravity by dragging them into the correct workspace.
+A: Yes! v1.03+ can auto-recover most workspace assignments by scanning your brain artifact files. When prompted, press Enter or 1 for auto-assignment. If some conversations can't be auto-detected, choose option 2 to manually assign them.
+
+**Q: I use WSL / SSH / Docker remote workspaces. Will this work?**
+A: Yes! v1.04+ fully supports `vscode-remote://` URIs. The tool auto-detects remote workspace paths from your brain artifacts and accepts them during manual assignment.
 
 ## License
 

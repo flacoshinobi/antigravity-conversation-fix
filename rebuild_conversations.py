@@ -1,5 +1,5 @@
 """
-Antigravity Conversation Fix  (v1.03)
+Antigravity Conversation Fix  (v1.04)
 =============================
 Rebuilds the Antigravity conversation index so all your chat history
 appears correctly — sorted by date (newest first) with proper titles.
@@ -23,13 +23,14 @@ License: MIT
 
 import sqlite3
 import base64
+import json
 import os
 import re
 import sys
 import time
 import subprocess
 import platform
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,9 @@ if _SYSTEM == "Windows":
     BRAIN_DIR = os.path.expandvars(
         r"%USERPROFILE%\.gemini\antigravity\brain"
     )
+    WORKSPACE_STORAGE_DIR = os.path.expandvars(
+        r"%APPDATA%\antigravity\User\workspaceStorage"
+    )
 elif _SYSTEM == "Darwin":  # macOS
     _home = os.path.expanduser("~")
     DB_PATH = os.path.join(
@@ -57,6 +61,10 @@ elif _SYSTEM == "Darwin":  # macOS
     BRAIN_DIR = os.path.join(
         _home, ".gemini", "antigravity", "brain"
     )
+    WORKSPACE_STORAGE_DIR = os.path.join(
+        _home, "Library", "Application Support",
+        "antigravity", "User", "workspaceStorage"
+    )
 else:  # Linux and other POSIX systems
     _home = os.path.expanduser("~")
     DB_PATH = os.path.join(
@@ -68,6 +76,10 @@ else:  # Linux and other POSIX systems
     )
     BRAIN_DIR = os.path.join(
         _home, ".gemini", "antigravity", "brain"
+    )
+    WORKSPACE_STORAGE_DIR = os.path.join(
+        _home, ".config", "Antigravity",
+        "User", "workspaceStorage"
     )
 
 BACKUP_FILENAME = "trajectorySummaries_backup.txt"
@@ -154,12 +166,22 @@ def encode_string_field(field_number, string_value):
 
 # ─── Workspace Helpers ───────────────────────────────────────────────────────
 
+def _is_remote_uri(path_or_uri):
+    """Check if a string is already a remote/absolute URI (not a local path)."""
+    return path_or_uri.startswith("vscode-remote://") or path_or_uri.startswith("file:///")
+
+
 def path_to_workspace_uri(folder_path):
     """
     Convert a local folder path to a file:/// URI matching Antigravity's format.
+    Passes through remote URIs (vscode-remote://, file:///) unchanged.
     Handles spaces and special characters via URL-encoding.
     Example: D:\\Repos\\My Project  →  file:///d%3A/Repos/My%20Project
     """
+    # Pass through URIs that are already in the correct format
+    if _is_remote_uri(folder_path):
+        return folder_path
+
     p = folder_path.replace("\\", "/")
     # Lowercase drive letter + URL-encode the colon
     if len(p) >= 2 and p[1] == ":":
@@ -199,8 +221,8 @@ def build_workspace_field(folder_path):
 def extract_workspace_hint(inner_blob):
     """
     Try to extract a workspace URI from the protobuf inner blob.
-    Scans length-delimited fields for strings matching file:/// patterns.
-    Returns the URI string if found, or None.
+    Scans length-delimited fields for strings matching file:/// or
+    vscode-remote:// patterns. Returns the URI string if found, or None.
     """
     if not inner_blob:
         return None
@@ -217,7 +239,7 @@ def extract_workspace_hint(inner_blob):
                 if field_num > 1:
                     try:
                         text = content.decode("utf-8", errors="strict")
-                        if "file:///" in text:
+                        if "file:///" in text or "vscode-remote://" in text:
                             return text
                     except Exception:
                         pass
@@ -234,22 +256,70 @@ def extract_workspace_hint(inner_blob):
     return None
 
 
-def infer_workspace_from_brain(conversation_id):
+def load_known_workspace_uris():
     """
-    Scan brain .md files for file:/// paths and infer the workspace
-    from the most common project folder prefix.
-    Returns a filesystem path string or None.
+    Load all known workspace URIs from Antigravity's workspaceStorage.
+    Each subfolder contains a workspace.json with a 'folder' or 'workspace' URI.
+    Returns a list of URI strings sorted longest-first for prefix matching.
+    """
+    uris = []
+    if not os.path.isdir(WORKSPACE_STORAGE_DIR):
+        return uris
+    try:
+        for name in os.listdir(WORKSPACE_STORAGE_DIR):
+            ws_json = os.path.join(WORKSPACE_STORAGE_DIR, name, "workspace.json")
+            if os.path.exists(ws_json):
+                try:
+                    with open(ws_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    uri = data.get("folder") or data.get("workspace")
+                    if uri:
+                        uris.append(uri)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    # Sort longest first so more-specific paths match before parent paths
+    uris.sort(key=len, reverse=True)
+    return uris
+
+
+def _uri_to_local_path(file_uri):
+    """
+    Convert a file:/// URI to a local filesystem path.
+    Handles URL-encoding (e.g. %20 -> space, %3A -> colon).
+    Returns None for non-file URIs.
+    """
+    if not file_uri.startswith("file:///"):
+        return None
+    raw = unquote(file_uri[len("file://"):])
+    # On Windows, file:///C:/... -> C:/...
+    if _SYSTEM == "Windows" and len(raw) >= 3 and raw[0] == '/' and raw[2] == ':':
+        raw = raw[1:]  # strip leading /
+    return raw
+
+
+def infer_workspace_from_brain(conversation_id, known_ws_uris=None):
+    """
+    Scan brain .md files for file:/// and vscode-remote:// paths and infer
+    the workspace by matching against known workspace URIs.
+    Falls back to a heuristic depth-based approach if no known URIs match.
+    Returns a filesystem path string, a remote URI string, or None.
     """
     brain_path = os.path.join(BRAIN_DIR, conversation_id)
     if not os.path.isdir(brain_path):
         return None
 
+    # Two separate patterns: local file:/// and remote vscode-remote://
     if _SYSTEM == "Windows":
-        path_pattern = re.compile(r"file:///([A-Za-z](?:%3A|:)/[^)\s\"'\]>]+)")
+        local_pattern = re.compile(r"file:///([A-Za-z](?:%3A|:)/[^)\s\"'\]>]+)")
     else:
-        path_pattern = re.compile(r"file:///([^)\s\"'\]>]+)")
+        local_pattern = re.compile(r"file:///([^)\s\"'\]>]+)")
+    remote_pattern = re.compile(r"(vscode-remote://[^)\s\"'\]>]+)")
 
-    path_counts = {}
+    # Collect all file URIs found in brain .md files
+    found_uris = []     # full file:/// URIs
+    found_remote = []   # full vscode-remote:// URIs
 
     try:
         for name in os.listdir(brain_path):
@@ -259,32 +329,75 @@ def infer_workspace_from_brain(conversation_id):
             try:
                 with open(filepath, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read(16384)
-                for match in path_pattern.finditer(content):
-                    raw = match.group(1)
-                    # Normalize: decode %3A back to colon, decode %20 to space
-                    raw = raw.replace("%3A", ":").replace("%3a", ":")
-                    raw = raw.replace("%20", " ")
-                    parts = raw.replace("\\", "/").split("/")
-                    # On Windows paths like C:/Users/name/Desktop/Project,
-                    # we need 5 segments to reach the actual project folder.
-                    # On Linux/Mac like /home/name/projects/Project, 4 is enough.
-                    if _SYSTEM == "Windows":
-                        depth = 5
-                    else:
-                        depth = 4
-                    if len(parts) >= depth:
-                        ws = "/".join(parts[:depth])
-                        path_counts[ws] = path_counts.get(ws, 0) + 1
+
+                for match in remote_pattern.finditer(content):
+                    found_remote.append(match.group(1))
+
+                for match in local_pattern.finditer(content):
+                    found_uris.append("file:///" + match.group(1))
             except Exception:
                 pass
     except Exception:
         return None
 
+    if not found_uris and not found_remote:
+        return None
+
+    # ── Strategy 1: Match against known workspace URIs (preferred) ────────
+    if known_ws_uris:
+        ws_counts = {}
+        for file_uri in found_uris:
+            normalized = file_uri.replace("%3A", ":").replace("%3a", ":")
+            normalized = normalized.replace("%20", " ")
+            for ws_uri in known_ws_uris:
+                ws_norm = ws_uri.replace("%3A", ":").replace("%3a", ":")
+                ws_norm = ws_norm.replace("%20", " ")
+                if normalized.startswith(ws_norm + "/") or normalized == ws_norm:
+                    ws_counts[ws_uri] = ws_counts.get(ws_uri, 0) + 1
+                    break  # matched most-specific (sorted longest-first)
+
+        for remote_uri in found_remote:
+            for ws_uri in known_ws_uris:
+                if remote_uri.startswith(ws_uri + "/") or remote_uri == ws_uri:
+                    ws_counts[ws_uri] = ws_counts.get(ws_uri, 0) + 1
+                    break
+
+        if ws_counts:
+            best_ws_uri = max(ws_counts, key=ws_counts.get)
+            local = _uri_to_local_path(best_ws_uri)
+            if local:
+                return local
+            return best_ws_uri
+
+    # ── Strategy 2: Fallback — heuristic depth-based approach ─────────────
+    path_counts = {}
+    for file_uri in found_uris:
+        raw = file_uri[len("file:///"):]
+        raw = raw.replace("%3A", ":").replace("%3a", ":")
+        raw = raw.replace("%20", " ")
+        parts = raw.replace("\\", "/").split("/")
+        # On Windows paths like C:/Users/name/Desktop/Project → 5 segments.
+        # On Linux/Mac like home/user/projects/Project → 4 segments + re-add /.
+        if _SYSTEM == "Windows":
+            depth = 5
+        else:
+            depth = 4
+        if len(parts) >= depth:
+            ws = "/".join(parts[:depth])
+            if _SYSTEM != "Windows" and not ws.startswith("/"):
+                ws = "/" + ws
+            path_counts[ws] = path_counts.get(ws, 0) + 1
+
+    for remote_uri in found_remote:
+        path_counts[remote_uri] = path_counts.get(remote_uri, 0) + 1
+
     if not path_counts:
         return None
 
     best = max(path_counts, key=path_counts.get)
-    # Convert to OS-native path
+    # Remote URIs are returned as-is; local paths get OS-native separators
+    if best.startswith("vscode-remote://"):
+        return best
     return best.replace("/", os.sep)
 
 
@@ -332,6 +445,10 @@ def _prompt_valid_folder(prompt_text):
         if raw == "":
             return None
         folder = raw.strip('"').strip("'").rstrip("\\/")
+        # Accept remote URIs without filesystem validation
+        if _is_remote_uri(folder):
+            print(f"    + Mapped remote URI: {folder}")
+            return folder
         if os.path.isdir(folder):
             print(f"    + Mapped to {folder}")
             return folder
@@ -385,6 +502,11 @@ def interactive_workspace_assignment(unmapped_entries):
                 break
             # Normal path entry
             folder = raw.strip('"').strip("'").rstrip("\\/")
+            # Accept remote URIs without filesystem validation
+            if _is_remote_uri(folder):
+                print(f"    + Mapped remote URI: {folder}")
+                assignments[cid] = folder
+                break
             if os.path.isdir(folder):
                 print(f"    + Mapped to {folder}")
                 assignments[cid] = folder
@@ -508,17 +630,19 @@ def get_title_from_brain(conversation_id):
 def resolve_title(conversation_id, existing_titles):
     """
     Determine the best title for a conversation. Priority:
-      1. Brain artifact .md heading
-      2. Existing title from database (preserved from previous run)
+      1. Existing title from database (canonical Antigravity title)
+      2. Brain artifact .md heading (fallback for new/missing conversations)
       3. Fallback: date + short UUID
-    Returns (title, source) where source is 'brain', 'preserved', or 'fallback'.
+    Returns (title, source) where source is 'preserved', 'brain', or 'fallback'.
     """
+    # Prefer the canonical title Antigravity already has in the database
+    if conversation_id in existing_titles:
+        return existing_titles[conversation_id], "preserved"
+
+    # Fall back to brain artifact heading for conversations not yet indexed
     brain_title = get_title_from_brain(conversation_id)
     if brain_title:
         return brain_title, "brain"
-
-    if conversation_id in existing_titles:
-        return existing_titles[conversation_id], "preserved"
 
     conv_file = os.path.join(CONVERSATIONS_DIR, f"{conversation_id}.pb")
     if os.path.exists(conv_file):
@@ -573,7 +697,7 @@ def build_trajectory_entry(conversation_id, title, existing_inner_data=None,
 def main():
     print()
     print("=" * 62)
-    print("   Antigravity Conversation Fix  v1.03")
+    print("   Antigravity Conversation Fix  v1.04")
     print("   Rebuilds your conversation index — sorted by date")
     print("=" * 62)
     print()
@@ -692,6 +816,14 @@ def main():
 
     ws_assignments = {}  # cid -> folder_path
 
+    # Load known workspace URIs from workspaceStorage for accurate matching
+    known_ws_uris = load_known_workspace_uris()
+    if known_ws_uris:
+        print(f"  Loaded {len(known_ws_uris)} known workspace(s) from workspaceStorage")
+    else:
+        print("  No workspaceStorage found — using fallback heuristic")
+    print()
+
     if unmapped:
         print(f"  {len(unmapped)} conversation(s) have no workspace assigned.")
         print()
@@ -706,11 +838,12 @@ def main():
             print("  Auto-assigning workspaces from brain artifacts...")
             auto_count = 0
             for idx, cid, title in unmapped:
-                inferred = infer_workspace_from_brain(cid)
-                if inferred and os.path.isdir(inferred):
+                inferred = infer_workspace_from_brain(cid, known_ws_uris)
+                if inferred and (_is_remote_uri(inferred) or os.path.isdir(inferred)):
                     ws_assignments[cid] = inferred
                     auto_count += 1
-                    print(f"    [{idx:3d}] -> {os.path.basename(inferred)}")
+                    display = os.path.basename(inferred) if not _is_remote_uri(inferred) else inferred
+                    print(f"    [{idx:3d}] -> {display}")
             if auto_count:
                 print(f"  Auto-assigned {auto_count} workspace(s)")
             else:
