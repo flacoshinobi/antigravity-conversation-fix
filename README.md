@@ -2,18 +2,19 @@
 
 Your Antigravity conversation history disappeared? Conversations showing in the wrong order? Titles replaced with placeholder text? Workspace assignments lost? This tool fixes all of that.
 
-## ⚡ Quick Start (Windows)
+## ⚡ How to Run
 
 1. **Close Antigravity** completely (File → Exit or kill from Task Manager)
-2. Download **`Antigravity_Conversation_Fix.exe`** from the [Releases](../../releases) page
-3. Double-click it — a terminal window will open
-4. The tool scans your conversations, rebuilds the index, and shows you the results
-5. When prompted for workspace assignment, choose an option:
+2. **Download the source code** (Clone the repo or download ZIP)
+3. **Run the tool**:
+   - **Windows**: Double-click **`run.bat`**
+   - **Mac / Linux**: Open terminal inside the tool folder and run `python rebuild_conversations.py`
+4. When prompted for workspace assignment, choose an option:
    - **Press Enter or 1** — auto-assigns workspaces from your brain files *(recommended)*
    - **Press 2** — auto-assigns first, then lets you manually assign any remaining conversations
-6. Restart your PC, then open Antigravity — your conversations are back, sorted by date
+6. Then open Antigravity — your conversations are back, sorted by date
 
-> **No Python or developer tools required.** Just download, run, done.
+> **Note:** Requires Python 3.7+. No external packages needed.
 
 ## What It Fixes
 
@@ -70,7 +71,7 @@ When the index gets corrupted, conversations still exist on disk but don't show 
 - **Fix:** Cross-platform process detection — Linux/macOS now properly checks if Antigravity is running.
 
 ### v1.02
-- **New:** Cross-platform support — the Python script now works on **macOS** and **Linux** in addition to Windows. The `.exe` remains Windows-only.
+- **New:** Cross-platform support — the Python script now works on **macOS** and **Linux** in addition to Windows.
 
 ### v1.01
 - **Fix:** Workspace assignments are now preserved when rebuilding the index. Previously, running the tool would strip conversations from their assigned workspace.
@@ -79,15 +80,6 @@ When the index gets corrupted, conversations still exist on disk but don't show 
 ### v1.0
 - Initial release — restores missing conversations, sorts by date, fixes titles.
 
-## Advanced: Run from Source (Mac / Linux / Windows)
-
-If you prefer running the Python script directly, or if you are on **Mac** or **Linux** (which cannot run `.exe` files):
-
-```bash
-python rebuild_conversations.py
-```
-
-Requires Python 3.7+ with no external packages. The script automatically detects your operating system and finds the correct `antigravity` folders.
 
 ## Safety
 
@@ -96,7 +88,6 @@ Requires Python 3.7+ with no external packages. The script automatically detects
 - **Metadata-preserving** — workspace assignments, timestamps, and other internal state are retained *(v1.01+)*
 - **Idempotent** — safe to run multiple times
 
-⚠️ Antivirus false positive: The .exe may be flagged only by 2 out of 72 engines on VirusTotal — both low-tier (SecureAge, Bkav). This is a known PyInstaller false positive: the bundler extracts Python to a temp folder at runtime, which triggers generic heuristic rules. All major engines (Windows Defender, Kaspersky, ESET, Bitdefender, Norton, etc.) pass it as clean. The source code is fully open — review it yourself if in doubt, or simply use the .py version.
 
 ## FAQ
 
